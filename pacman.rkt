@@ -12,6 +12,11 @@
 (define (repeat n x)
   (build-list n (constantly x)))
 
+(define (list-set l i x)
+  (cond [(empty? l) l]
+        [(zero? i) (cons x (rest l))]
+        [else (cons (first l) (list-set (rest l) (sub1 i) x))]))
+
 ;; Basic grid (2d-array) abstractions
 
 ; data Grid X where
@@ -26,6 +31,10 @@
   (/ (length (grid-contents g))
      (grid-width g)))
 
+(define (grid-idx g i j)
+  (+ (* (grid-width g) j)
+     i))
+
 ; (Grid X) Int Int -> X
 ; 0 <= i < (grid-width g)
 ; 0 <= j < (grid-height g)
@@ -33,6 +42,12 @@
   (list-ref (grid-contents g)
             (+ (* (grid-width g) j)
                i)))
+
+(define (grid-set g i j x)
+  (make-grid (grid-width g)
+             (list-set (grid-contents g)
+                       (grid-idx g i j)
+                       x)))
 
 ; (Grid X) (X -> Y) -> Grid Y
 (define (grid-map g f)
@@ -68,6 +83,10 @@
 
 ; Image [Drawing] -> Image
 (define apply-drawings apply-each)
+
+(define (combine-drawings ds)
+  (foldl compose identity ds))
+
 
 (define (draw-at img x y)
   (lambda (i0)
@@ -303,17 +322,48 @@
   (make-game-state pills
                    (game-state-pacman s)))
 
+(define (pill-drawing pill i j)
+  (if pill
+    (draw-at/center (circle 2 'solid 'white)
+                    (+ (* maze-cell-size i) half-cell)
+                    (+ (* maze-cell-size j) half-cell))
+    identity))
+
+(define (pills-drawing ps)
+  (combine-drawings (grid-contents (grid-indexed-map ps
+                                                     pill-drawing))))
+
+
 
 (define (draw-game s)
   (apply-drawings rendered-maze
-                  (list (pacman-drawing (game-state-pacman s)))))
+                  (list
+                    (pills-drawing (game-state-pills s))
+                    (pacman-drawing (game-state-pacman s)))))
 
-(define (tock s)
+(define (pacman-movement s)
   (let ([pacman (game-state-pacman s)])
     (game-state-set-pacman s
                            (place-in-center
                              (move-character
                                (toggle-directions pacman) pacman-speed)))))
+
+(define (pill-eating s)
+  (let* ([pacman (game-state-pacman s)]
+         [pos (character-position pacman)]
+         [cell (position-cell pos)]
+         [i (cell-i cell)]
+         [j (cell-j cell)]
+         [pills (game-state-pills s)])
+    (if (and (at-center pos)
+             (grid-ref pills i j))
+      (game-state-set-pills s
+                            (grid-set pills i j #f))
+      s)))
+
+
+(define (tock s)
+  (pill-eating (pacman-movement s)))
 
 (define (set-direction s dir)
   (let ([pacman (game-state-pacman s)])
@@ -339,7 +389,7 @@
 (define (show img)
   (animate (constantly img)))
 
-(big-bang (make-game-state default-maze default-start)
+(big-bang (make-game-state (grid-map  default-maze not)  default-start)
           [to-draw draw-game]
           [on-key handle-key]
           [on-tick tock])
