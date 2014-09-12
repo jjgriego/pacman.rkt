@@ -82,7 +82,7 @@
                  x y
                  i0)))
 
-(define maze-image (bitmap/file "Desktop/pacman-maze.png"))
+(define maze-image (bitmap/file "pacman-maze.png"))
 
 (define default-maze (make-grid (image-width maze-image)
                                 (map (lambda (c) (equal? c (make-color 255 255 255)))
@@ -98,7 +98,7 @@
 (define maze-height-pixels (* maze-height maze-cell-size))
 
 (define half-cell (/ maze-cell-size 2))
-(define maze-cell-color (make-color 255 128 128))
+(define maze-cell-color (make-color 0 0 60))
 
 (define (draw-at-cell img i j)
   (draw-at img
@@ -115,7 +115,7 @@
     (freeze
       (apply-drawings (rectangle (* maze-cell-size (grid-width default-maze))
                                  (* maze-cell-size (grid-height default-maze))
-                                 'solid 'white)
+                                 'solid 'black)
                       (grid-contents (grid-indexed-map maze-cells draw-at-cell))))))
 
 ; data Direction = 'north | 'south | 'east | 'west
@@ -289,11 +289,20 @@
 
 (define (pacman-drawing c)
   (let ([coord (position-coords (character-position c))])
-    (draw-at/center (circle (* 1.8 half-cell) 'solid 'orange)
+    (draw-at/center (circle (* 1.8 half-cell) 'solid 'yellow)
                     (offset-x coord)
                     (offset-y coord))))
 
-(define-struct game-state (pacman))
+(define-struct game-state (pills pacman))
+
+(define (game-state-set-pacman s pacman)
+  (make-game-state (game-state-pills s)
+                   pacman))
+
+(define (game-state-set-pills s pills)
+  (make-game-state pills
+                   (game-state-pacman s)))
+
 
 (define (draw-game s)
   (apply-drawings rendered-maze
@@ -301,17 +310,21 @@
 
 (define (tock s)
   (let ([pacman (game-state-pacman s)])
-    (make-game-state (place-in-center
-                       (move-character (toggle-directions pacman) pacman-speed)))))
+    (game-state-set-pacman s
+                           (place-in-center
+                             (move-character
+                               (toggle-directions pacman) pacman-speed)))))
 
 (define (set-direction s dir)
   (let ([pacman (game-state-pacman s)])
-    (if (and (can-advance (character-position pacman) dir)
-             (at-center (character-position pacman)))
-      (make-game-state (character-set-direction (clear-next-dir pacman)
-                                                dir))
-      (make-game-state (character-set-next-direction pacman
-                                                     dir)))))
+    (game-state-set-pacman 
+      s
+      (if (and (can-advance (character-position pacman) dir)
+               (at-center (character-position pacman)))
+        (character-set-direction (clear-next-dir pacman)
+                                 dir)
+        (character-set-next-direction pacman
+                                      dir)))))
 
 
 (define (handle-key s k)
@@ -326,7 +339,7 @@
 (define (show img)
   (animate (constantly img)))
 
-(big-bang (make-game-state default-start)
+(big-bang (make-game-state default-maze default-start)
           [to-draw draw-game]
           [on-key handle-key]
           [on-tick tock])
