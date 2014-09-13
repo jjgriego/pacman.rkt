@@ -3,6 +3,7 @@
 (require 2htdp/image)
 (require 2htdp/universe)
 
+;;< Utilities
 ; K-combinator
 ; X -> Y -> X
 (define (constantly c)
@@ -19,8 +20,8 @@
   (cond [(empty? l) l]
         [(zero? i) (cons x (rest l))]
         [else (cons (first l) (list-set (rest l) (sub1 i) x))]))
-
-;; Basic grid (2d-array) abstractions
+;;>
+;;< Basic grid (2d-array) abstractions
 
 ; data Grid X where
 ;   make-grid : Int [X] -> Grid X
@@ -85,7 +86,8 @@
                            (build-list height
                                        (lambda (n) (repeat width n))))))))
 
-;; Drawing abstractions
+;;>
+;;< Drawing abstractions
 
 ; type Drawing = Image -> Image
 
@@ -128,6 +130,8 @@
            (* i maze-cell-size)
            (* j maze-cell-size)))
 
+;;>
+;;< Constants
 
 ; Image
 (define maze-image (bitmap/file "pacman-maze.png"))
@@ -179,6 +183,8 @@
 
 ; data Direction = 'north | 'south | 'east | 'west
 
+;;>
+;;< Cell functions
 ; data Cell = Cell Int Int
 ; a cell in the maze
 
@@ -207,6 +213,12 @@
         [(symbol=? dir 'east) (make-cell 1 0 )]
         [(symbol=? dir 'west) (make-cell -1 0)]))
 
+; Int
+; The number of pixels pacman moves in one frame
+(define pacman-speed 3)
+
+;;>
+;;< Offset functions
 ; data Offset = Offset Int Int
 
 (define-struct offset (x y))
@@ -278,6 +290,8 @@
     [(symbol=? dir 'east) (make-offset (offset-x o) half-cell)]
     [(symbol=? dir 'west) (make-offset (offset-x o) half-cell)]))
 
+;;>
+;;< Position functions
 ; data Position = Position Cell Offset
 ;
 ; The offset must lie in the square with corners
@@ -307,10 +321,17 @@
 (define (position-coords p)
   (cell-offset (position-cell p) (position-offset p)))
 
-
+;;>
+;;< Character functions
 ; data Character = Character Position Direction (Maybe Direction)
-
 (define-struct character (position direction next-direction))
+
+; Character
+; Starting position of pacman
+(define default-start (make-character (make-position (make-cell 14 23)
+                                                     (make-offset half-cell half-cell))
+                                      'west
+                                      #f))
 
 ; Character Position -> Character
 (define (character-set-position c p)
@@ -334,17 +355,6 @@
 ; Resets the character's next direction to #f
 (define (clear-next-dir c)
   (character-set-next-direction c #f))
-
-; Int
-; The number of pixels pacman moves in one frame
-(define pacman-speed 3)
-
-; Character
-; Starting position of pacman
-(define default-start (make-character (make-position (make-cell 14 23)
-                                                     (make-offset half-cell half-cell))
-                                      'west
-                                      #f))
 
 ; Character -> Bool
 ; Returns true if the character is near the center of the cell
@@ -419,6 +429,12 @@
                                    (offset-direction (character-direction c)))))
     c))
 
+;;>
+;;< Pacman functions
+
+
+
+
 ; Character -> Drawing
 ; Draws Pacman for the given character
 (define (pacman-drawing c)
@@ -427,21 +443,37 @@
                     (offset-x coord)
                     (offset-y coord))))
 
+;;>
+;;< Ghost functions
+
+
+
+;;>
+;;< GameState functions
+
 ; type Pills = Grid Bool
 
-; data GameState = GameState Pills Character
+; data GameState = GameState Pills Character Character
 
-(define-struct game-state (pills pacman))
+(define-struct game-state (pills pacman ghost))
 
 ; GameState Character -> GameState
 (define (game-state-set-pacman s pacman)
   (make-game-state (game-state-pills s)
-                   pacman))
+                   pacman
+                   (game-state-ghost s)))
 
 ; GameState Pills -> GameState
 (define (game-state-set-pills s pills)
   (make-game-state pills
-                   (game-state-pacman s)))
+                   (game-state-pacman s)
+                   (game-state-ghost s)))
+
+; GameState Character -> GameState
+(define (game-state-set-ghost s ghost)
+  (make-game-state (game-state-pills s)
+                   (game-state-pacman s)
+                   ghost))
 
 ; Bool Int Int -> Drawing
 ; draws a single pilll at i, j
@@ -501,7 +533,7 @@
 ; Makes Pacman change direction if he can
 (define (set-direction s dir)
   (let ([pacman (game-state-pacman s)])
-    (game-state-set-pacman 
+    (game-state-set-pacman
       s
       (if (and (can-advance (character-position pacman) dir)
                (at-center (character-position pacman)))
@@ -520,12 +552,11 @@
     [(key=? k "right") (set-direction s 'east)]
     [else s]))
 
-; Image -> IO ()
-; Display the image
-(define (show img)
-  (animate (constantly img)))
+;;>
 
-(big-bang (make-game-state (grid-map  default-maze not)  default-start)
+(big-bang (make-game-state (grid-map default-maze not)
+                           default-start
+                           default-start)
           [to-draw draw-game]
           [on-key handle-key]
           [on-tick tock])
