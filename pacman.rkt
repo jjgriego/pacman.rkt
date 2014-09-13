@@ -216,6 +216,9 @@
 ; Int
 ; The number of pixels pacman moves in one frame
 (define pacman-speed 3)
+; Int
+; The number of pixels ghosts move in one frame
+(define ghost-speed 2)
 
 ;;>
 ;;< Offset functions
@@ -332,6 +335,12 @@
                                                      (make-offset half-cell half-cell))
                                       'west
                                       #f))
+; Character
+; Starting position of ghost
+(define ghost-start (make-character (make-position (make-cell 14 11)
+                                                     (make-offset half-cell half-cell))
+                                      'west
+                                      #f))
 
 ; Character Position -> Character
 (define (character-set-position c p)
@@ -429,23 +438,29 @@
                                    (offset-direction (character-direction c)))))
     c))
 
-;;>
-;;< Pacman functions
-
-
-
-
-; Character -> Drawing
-; Draws Pacman for the given character
-(define (pacman-drawing c)
+; Character Image -> Drawing
+; Draws the character with the given image
+(define (draw-character c img)
   (let ([coord (position-coords (character-position c))])
-    (draw-at/center (circle (* 1.8 half-cell) 'solid 'yellow)
+    (draw-at/center img
                     (offset-x coord)
                     (offset-y coord))))
 
 ;;>
+;;< Pacman functions
+
+; Character -> Drawing
+; Draws Pacman for the given character
+(define (pacman-drawing c)
+  (draw-character c (circle (* 1.8 half-cell) 'solid 'yellow)))
+
+;;>
 ;;< Ghost functions
 
+; Character -> Drawing
+; Draws a ghost
+(define (ghost-drawing c)
+  (draw-character c (circle (* 1.3 half-cell) 'solid 'magenta)))
 
 
 ;;>
@@ -497,16 +512,27 @@
   (apply-drawings rendered-maze
                   (list
                     (pills-drawing (game-state-pills s))
+                    (ghost-drawing (game-state-ghost s))
                     (pacman-drawing (game-state-pacman s)))))
+
+(define (character-movement c speed)
+  (place-in-center
+    (move-character
+      (toggle-directions c) speed)))
 
 ; GameState -> GameState
 ; Moves Pacman
 (define (pacman-movement s)
-  (let ([pacman (game-state-pacman s)])
-    (game-state-set-pacman s
-                           (place-in-center
-                             (move-character
-                               (toggle-directions pacman) pacman-speed)))))
+  (game-state-set-pacman s
+                         (character-movement (game-state-pacman s)
+                                             pacman-speed)))
+
+; GameState -> GameSTate
+; Moves the ghost
+(define (ghost-movement s)
+  (game-state-set-ghost s
+                        (character-movement (game-state-ghost s)
+                                            ghost-speed)))
 
 ; GameState -> GameState
 ; Makes Pacman eat the pill he is sitting on if he can
@@ -527,7 +553,9 @@
 ; GameState -> GameState
 ; Compute the game state of the next frame
 (define (tock s)
-  (pill-eating (pacman-movement s)))
+  (ghost-movement
+    (pill-eating
+      (pacman-movement s))))
 
 ; GameState Direction -> GameState
 ; Makes Pacman change direction if he can
@@ -556,7 +584,7 @@
 
 (big-bang (make-game-state (grid-map default-maze not)
                            default-start
-                           default-start)
+                           ghost-start)
           [to-draw draw-game]
           [on-key handle-key]
           [on-tick tock])
