@@ -20,6 +20,52 @@
   (cond [(empty? l) l]
         [(zero? i) (cons x (rest l))]
         [else (cons (first l) (list-set (rest l) (sub1 i) x))]))
+
+(define-struct thunk ())
+
+; Thunk -> Color
+; Creates a random Color
+(define (random-color thunk)
+  (make-color (random 256)
+              (random 256)
+              (random 256)))
+
+(define (filter-not pred l)
+  (filter (lambda (x) (not (pred x))) l))
+
+(define (take n l)
+  (cond [(empty? l) empty]
+        [(zero? n) empty]
+        [else (cons (first l) (take (sub1 n) (rest l)))]))
+
+(define (drop n l)
+  (cond [(empty? l) empty]
+        [(zero? n) l]
+        [else (drop (sub1 n) (rest l))]))
+
+(define (partition n l)
+  (cond [(< (length l) n) empty]
+        [else             (cons (take n l) (partition n (drop n l)))]))
+
+(define (find l pred)
+  (cond [(empty? l) #f]
+        [(pred (first l)) (first l)]
+        [else (find (rest l) pred)]))
+
+(define (find-idx l pred)
+  (cond [(empty? l) #f]
+        [(pred (first l)) 0]
+        [else (add1 (find-idx (rest l) pred))]))
+
+(define (sum l) (foldl + 0 l))
+(define (prod l) (foldl * 1 l))
+
+(define (direction-reverse d)
+  (cond [(symbol=? d 'north) 'south]
+        [(symbol=? d 'south) 'north]
+        [(symbol=? d 'east) 'west]
+        [(symbol=? d 'west) 'east]))
+
 ;;>
 ;;< Basic grid (2d-array) abstractions
 
@@ -69,6 +115,11 @@
 ; Folds `f' over every element of the grid
 (define (grid-fold g f x0)
   (foldl f x0 (grid-contents g)))
+
+; (Grid Y) ([Y] -> X) ([X] -> Z) -> Z
+; Folds over each row of the grid, then folds over the rows
+(define (grid-scan g fi fj)
+  (fj (map fi (partition (grid-width g) (grid-contents g)))))
 
 ; (Grid X) (X Int Int -> Y) -> Grid Y
 ; Applies `f' to each element in the grid and its coordinates
@@ -141,6 +192,8 @@
                                 (map (lambda (c) (equal? c (make-color 255 255 255)))
                                      (image->color-list maze-image))))
 
+; type Maze = Grid Bool
+
 ; Int
 ; The width in cells of the maze
 (define maze-width (grid-width default-maze))
@@ -165,23 +218,6 @@
 ; Int
 ; The color of the paths Pacman can travel
 (define maze-cell-color (make-color 0 0 60))
-
-; Image
-; An image of the maze
-(define rendered-maze
-  (let* ([maze-cells (grid-map default-maze
-                               (lambda (c)
-                                 (if c
-                                     empty-image
-                                     (rectangle maze-cell-size maze-cell-size
-                                                  'solid maze-cell-color))))])
-    (freeze
-      (apply-drawings (rectangle (* maze-cell-size (grid-width default-maze))
-                                 (* maze-cell-size (grid-height default-maze))
-                                 'solid 'black)
-                      (grid-contents (grid-indexed-map maze-cells draw-at-cell))))))
-
-; data Direction = 'north | 'south | 'east | 'west
 
 ;;>
 ;;< Cell functions
@@ -219,6 +255,131 @@
 ; Int
 ; The number of pixels ghosts move in one frame
 (define ghost-speed 2)
+
+;;>
+;;< Generating maze structures
+
+;-------------------------------------------------------------------------------
+; Our main goal here is to prepare the maze structure both for rendering and for
+; easy searching/traversal when we need to manage the movement of the ghosts.
+;
+; At a high level, we're turning the maze into a weighted graph and assigning a
+; nearest-node to each cell that pacman or a ghost can be in.
+;-------------------------------------------------------------------------------
+
+; Maze Int Int -> Direction -> Maybe Direction
+; Get a predicate to check if a cell has a neighbor in a given direction
+(define (find-neighbor m i j)
+  (let ([cell (make-cell i j)])
+    (lambda (direction)
+      (let* ([d (cell-direction direction)]
+             [new-cell (cell-add cell d)])
+          (if (grid-ref m
+                        (cell-i new-cell)
+                        (cell-j new-cell))
+            false
+            direction)))))
+
+; Maze -> Bool Int Int -> [Direction]
+; Gets a list of the neighbors at a point i,j
+(define (cell-neighbors m)
+  (lambda (x0 i j)
+    (if x0
+      empty
+      (filter-not false? (map (find-neighbor m i j) '(north south east west))))))
+
+; Maze -> Grid [Direction]
+(define (maze-neighbors m)
+  (grid-indexed-map m (cell-neighbors m)))
+
+; Grid [Direction]
+(define maze-cell-neighbors (maze-neighbors default-maze))
+
+(define-struct intersection (i j directions))
+
+; [Intersection]
+(define maze-intersections
+  (filter-not false?
+              (grid-contents (grid-indexed-map maze-cell-neighbors
+                                               (lambda (c i j)
+                                                 (if (> (length c) 2)
+                                                   (make-intersection i j c)
+                                                   #f))))))
+
+; Cell -> Maybe Intersection
+(define (get-intersection cell)
+  (find maze-intersections
+        (lambda (int)
+          (and (= (intersection-i int) (cell-i cell))
+               (= (intersection-j int) (cell-j cell))))))
+
+; Cell Direction -> Int*
+; Gets the intersection number reachable from a given cell, ignoring those in a
+; direction dir
+;
+; This function is partial
+(define (maze-intersection-traverse cell dir)
+  (let ([int (get-intersection cell)])
+    (if (false? int)
+      (let* ([last-dir (direction-reverse dir)]
+             [next-dir (find (grid-ref maze-cell-neighbors
+                                       (cell-i cell)
+                                       (cell-j cell))
+                             (lambda (d)
+                               (not (symbol=? last-dir d))))])
+          (let ([delta (cell-direction next-dir)])
+            (maze-intersection-traverse (cell-add cell delta)
+                                        next-dir)))
+      (find-idx maze-intersections
+                (lambda (x) (equal? x int))))))
+
+; Cell Direction -> Int*
+; Gets the connection from an intersection in a given direction
+;
+; This function is partial
+(define (maze-intersection-connection cell dir)
+  (let ([delta (cell-direction dir)])
+    (maze-intersection-traverse (cell-add cell delta)
+                                dir)))
+
+(define-struct connection (direction intersection-num))
+(define-struct intersection-info (i j connections))
+
+; Intersection -> IntersectionInfo
+; Populates a intersection with the ids of the intersections reachable directly
+; from it
+(define (maze-intersection-connections int)
+  (let* ([i (intersection-i int)]
+         [j (intersection-j int)]
+         [connections (map (lambda (d)
+                             (make-connection d
+                                              (maze-intersection-connection
+                                                (make-cell i j)
+                                                d)))
+                           (intersection-directions int))])
+    (make-intersection-info i j connections)))
+
+; [IntersectionInfo]
+(define maze-connections (map maze-intersection-connections
+                              maze-intersections))
+
+
+; Image
+; An image of the maze
+(define rendered-maze
+  (let* ([maze-cells (grid-map default-maze
+                               (lambda (c)
+                                 (if c
+                                     empty-image
+                                     (rectangle maze-cell-size maze-cell-size
+                                                  'solid maze-cell-color))))])
+    (freeze
+      (apply-drawings (rectangle (* maze-cell-size (grid-width default-maze))
+                                 (* maze-cell-size (grid-height default-maze))
+                                 'solid 'black)
+                      (grid-contents (grid-indexed-map maze-cells draw-at-cell))))))
+
+; data Direction = 'north | 'south | 'east | 'west
 
 ;;>
 ;;< Offset functions
@@ -579,7 +740,6 @@
     [(key=? k "left") (set-direction s 'west)]
     [(key=? k "right") (set-direction s 'east)]
     [else s]))
-
 ;;>
 
 (big-bang (make-game-state (grid-map default-maze not)
