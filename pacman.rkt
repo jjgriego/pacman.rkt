@@ -313,7 +313,13 @@
           (and (= (intersection-i int) (cell-i cell))
                (= (intersection-j int) (cell-j cell))))))
 
-; Cell Direction -> Int*
+(define-struct path (distance intersection-num))
+
+(define (path-distance-add1 con)
+  (make-path (add1 (path-distance con))
+             (path-intersection-num con)))
+
+; Cell Direction -> Path*
 ; Gets the intersection number reachable from a given cell, ignoring those in a
 ; direction dir
 ;
@@ -328,21 +334,23 @@
                              (lambda (d)
                                (not (symbol=? last-dir d))))])
           (let ([delta (cell-direction next-dir)])
-            (maze-intersection-traverse (cell-add cell delta)
-                                        next-dir)))
-      (find-idx maze-intersections
-                (lambda (x) (equal? x int))))))
+            (path-distance-add1
+              (maze-intersection-traverse (cell-add cell delta)
+                                          next-dir))))
+      (make-path 0
+                 (find-idx maze-intersections
+                           (lambda (x) (equal? x int)))))))
 
-; Cell Direction -> Int*
+; Cell Direction -> Path*
 ; Gets the connection from an intersection in a given direction
 ;
 ; This function is partial
 (define (maze-intersection-connection cell dir)
   (let ([delta (cell-direction dir)])
-    (maze-intersection-traverse (cell-add cell delta)
-                                dir)))
+    (path-distance-add1
+      (maze-intersection-traverse (cell-add cell delta) dir))))
 
-(define-struct connection (direction intersection-num))
+(define-struct connection (direction distance intersection-num))
 (define-struct intersection-info (i j connections))
 
 ; Intersection -> IntersectionInfo
@@ -352,10 +360,12 @@
   (let* ([i (intersection-i int)]
          [j (intersection-j int)]
          [connections (map (lambda (d)
-                             (make-connection d
-                                              (maze-intersection-connection
-                                                (make-cell i j)
-                                                d)))
+                             (let ([path (maze-intersection-connection
+                                           (make-cell i j)
+                                           d)])
+                               (make-connection d
+                                                (path-distance path)
+                                                (path-intersection-num path))))
                            (intersection-directions int))])
     (make-intersection-info i j connections)))
 
