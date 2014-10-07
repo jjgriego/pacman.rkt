@@ -369,9 +369,34 @@
                            (intersection-directions int))])
     (make-intersection-info i j connections)))
 
+; Int Int Direction -> Path
+; Gets the nearest intersection in the given direction
+(define (nearest-intersection-direction i j d)
+  (maze-intersection-traverse (make-cell i j)
+                              (direction-reverse d)))
+
+; Int Int -> IntersectionId
+; Gets the id of the nearest intersection
+(define (nearest-intersection i j)
+  (let ([neighbors (grid-ref maze-cell-neighbors i j)])
+    (if (empty? neighbors)
+      #f
+      (path-intersection-num
+        (argmin path-distance
+                (map (lambda (d) (nearest-intersection-direction i j d))
+                     neighbors))))))
+
 ; [IntersectionInfo]
 (define maze-connections (map maze-intersection-connections
                               maze-intersections))
+
+; Grid IntersectionId
+(define maze-nearest-intersection
+  (grid-indexed-map default-maze
+                    (lambda (x i j)
+                      (nearest-intersection i j))))
+
+; TODO: search graph and find nearest-path solutions
 
 
 ; Image
